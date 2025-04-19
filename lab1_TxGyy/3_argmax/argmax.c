@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
     }
     int nthreads = atoi(argv[1]);
     int K = atoi(argv[2]);
-    const int N = 40962;
+    const int N = 4096 * 4096;
     omp_set_num_threads(nthreads);
 
     double *v = malloc(N * sizeof(double));
