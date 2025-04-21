@@ -1,4 +1,4 @@
-
+//hola
 #include <stdio.h>
 #include <omp.h>
 #include <math.h>
