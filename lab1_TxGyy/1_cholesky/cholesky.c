@@ -24,7 +24,7 @@ void cholesky_openmp(int n) {
     U = (double **)malloc(n * sizeof(double *)); 
     B = (double **)malloc(n * sizeof(double *)); 
     
-    #pragma omp parallel for
+    #pragma omp parallel for schedule(static)
     for(i=0; i<n; i++) {
         A[i] = (double *)malloc(n * sizeof(double)); 
         L[i] = (double *)malloc(n * sizeof(double)); 
@@ -34,14 +34,15 @@ void cholesky_openmp(int n) {
 
     srand(time(NULL));
 
-    #pragma omp parallel for private(i,j)
+    #pragma omp parallel for private(j) schedule(static)
     for (i = 0; i < n; i++) {
+        unsigned int seed = time(NULL) ^ omp_get_thread_num();
         for (j = 0; j < n; j++) {
-            A[i][j] = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
+            A[i][j] = ((double) rand_r(&seed) / RAND_MAX) * 2.0 - 1.0;
         }
     }
     
-    #pragma omp parallel for private(i,j)
+    #pragma omp parallel for private(j) schedule(dynamic)
     for (i = 0; i < n; i++) {
         for (j = i; j < n; j++) {
             if (i == j) {
@@ -54,7 +55,7 @@ void cholesky_openmp(int n) {
         }
     }
 
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(2) schedule(static)
     for(i=0; i < n; i++) {
         for(j=0; j < n; j++) {
             L[i][j] = 0.0;
@@ -69,12 +70,13 @@ void cholesky_openmp(int n) {
     start = omp_get_wtime();
     for(i = 0; i < n; i++) {
         tmp = 0.0;
+        #pragma omp parallel for reduction(+:tmp) private(k) shared(U)
         for(k = 0; k < i; k++) {
             tmp += U[k][i] * U[k][i];
         }
         U[i][i] = sqrt(A[i][i] - tmp);
 
-        #pragma omp parallel for private(k, tmp)
+        #pragma omp parallel for private(j,k,tmp) shared(U,A) schedule(dynamic) // schedule(static,4) o schedule(guided)
         for(j = i + 1; j < n; j++) {
             tmp = 0.0;
             for(k = 0; k < i; k++) {
@@ -86,9 +88,9 @@ void cholesky_openmp(int n) {
     end = omp_get_wtime();
     printf("Cholesky: %f\n", end-start);
 
-
+    // 3. Compute U^T
     start = omp_get_wtime();
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(2) schedule(static)
     for (i = 0; i < n; i++) {
         for (j = 0; j < n; j++) {
             L[i][j] = U[j][i];
@@ -100,7 +102,7 @@ void cholesky_openmp(int n) {
 
     // 4. Compute B = L * U
     start = omp_get_wtime();
-    #pragma omp parallel for private(j,k)
+    #pragma omp parallel for private(j,k) schedule(static) // schedule(static,2)
     for (i = 0; i < n; i++) {
         for (j = 0; j < n; j++) {
             B[i][j] = 0.0;
@@ -116,7 +118,7 @@ void cholesky_openmp(int n) {
     // 5. Check A = B
     start = omp_get_wtime();
     cnt = 0;
-    #pragma omp parallel for collapse(2) reduction(+:cnt)
+    #pragma omp parallel for collapse(2) reduction(+:cnt) schedule(static)
     for (i = 0; i < n; i++) {
         for (j = 0; j < n; j++) {
             if (fabs(A[i][j] - B[i][j]) > 0.00001) {
