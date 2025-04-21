@@ -76,7 +76,7 @@ void cholesky_openmp(int n) {
         }
         U[i][i] = sqrt(A[i][i] - tmp);
 
-        #pragma omp parallel for private(j,k,tmp) shared(U,A) schedule(dynamic) // schedule(static,4) o schedule(guided)
+        #pragma omp parallel for private(j,k,tmp) shared(U,A) schedule(static,4) // schedule(static,4) o schedule(guided)
         for(j = i + 1; j < n; j++) {
             tmp = 0.0;
             for(k = 0; k < i; k++) {
@@ -102,7 +102,7 @@ void cholesky_openmp(int n) {
 
     // 4. Compute B = L * U
     start = omp_get_wtime();
-    #pragma omp parallel for private(j,k) schedule(static) // schedule(static,2)
+    #pragma omp parallel for private(j,k) schedule(static,2) // schedule(static,2)
     for (i = 0; i < n; i++) {
         for (j = 0; j < n; j++) {
             B[i][j] = 0.0;
