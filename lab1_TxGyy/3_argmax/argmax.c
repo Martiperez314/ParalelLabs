@@ -77,10 +77,10 @@ void argmax_recursive_tasks(double *v, int N, double *m, int *idx_m, int K) {
     int idx1, idx2;
     int mid = N / 2;
 
-    #pragma omp task shared(m1, idx1)
+    #pragma omp task firstprivate(v, mid, K) shared(m1, idx1)
     argmax_recursive_tasks(v, mid, &m1, &idx1, K);
 
-    #pragma omp task shared(m2, idx2)
+    #pragma omp task firstprivate(v, mid, N, K) shared(m2, idx2)
     argmax_recursive_tasks(v + mid, N - mid, &m2, &idx2, K);
 
     #pragma omp taskwait
