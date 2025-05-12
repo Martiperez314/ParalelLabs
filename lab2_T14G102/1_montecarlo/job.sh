@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# Configuration for 1 node, 4 cores and 5 minutes of execution time
 #SBATCH --job-name=ex1
-#SBATCH -p std
-#SBATCH --output=out_montecarlo_%j.out
-#SBATCH --error=out_montecarlo_%j.err
-#SBATCH --cpus-per-task=4
-#SBATCH --ntasks=1
-#SBATCH --nodes=1
+#SBATCH --output=job%j.out
+#SBATCH --error=job%j.err
+#SBATCH --partition=std
+#SBATCH --ntasks=12
 #SBATCH --time=00:05:00
 
-make >> make.out || exit 1      # Exit if make fails
+module purge
+module load gcc/13.3.0 openmpi/5.0.3
 
-./montecarlo 
+make >> make.out || exit 1
+
+mpirun -np 12 ./montecarlo 4 100000000 10
