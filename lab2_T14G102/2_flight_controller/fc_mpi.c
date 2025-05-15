@@ -257,6 +257,110 @@ void communicate_planes_struct_mpi(PlaneList* list,
                                int rank, int size,
                                int* tile_displacements)
 {
+    MinPlaneToSend dummy;
+    MPI_Datatype MPI_MinPlaneType;
+    {
+        int blocklengths[5] = {1, 1, 1, 1, 1};
+        MPI_Aint displacements[5];
+        MPI_Datatype types[5] = { MPI_INT, MPI_DOUBLE, MPI_DOUBLE, MPI_DOUBLE, MPI_DOUBLE };
+        MPI_Aint base;
+        MPI_Get_address(&dummy, &base);
+        MPI_Get_address(&dummy.index_plane, &displacements[0]);
+        MPI_Get_address(&dummy.x,           &displacements[1]);
+        MPI_Get_address(&dummy.y,           &displacements[2]);
+        MPI_Get_address(&dummy.vx,          &displacements[3]);
+        MPI_Get_address(&dummy.vy,          &displacements[4]);
+        for (int i = 0; i < 5; i++) {
+            displacements[i] -= base;
+        }
+        MPI_Type_create_struct(5, blocklengths, displacements, types, &MPI_MinPlaneType);
+        MPI_Type_commit(&MPI_MinPlaneType);
+    }
+
+    // 1) Collect planes that moved off this rank into to_send list
+    int *send_counts = calloc(size, sizeof(int));
+    PlaneList to_send = { NULL, NULL };
+    PlaneNode *cur = list->head;
+    PlaneNode *next;
+    while (cur) {
+        next = cur->next;
+        int dest = get_rank_from_indices(cur->x, cur->y, N, M, tile_displacements, size);
+        if (dest != rank) {
+            send_counts[dest]++;
+            insert_plane(&to_send,
+                         cur->index_plane,
+                         cur->index_map,
+                         rank,
+                         cur->x, cur->y,
+                         cur->vx, cur->vy);
+            remove_plane(list, cur);
+        }
+        cur = next;
+    }
+
+    // 2) Exchange counts
+    int *recv_counts = calloc(size, sizeof(int));
+    MPI_Alltoall(send_counts, 1, MPI_INT,
+                 recv_counts, 1, MPI_INT,
+                 MPI_COMM_WORLD);
+
+    // 3) Build displacements in number of structs
+    int *send_disp = malloc(size * sizeof(int));
+    int *recv_disp = malloc(size * sizeof(int));
+    send_disp[0] = recv_disp[0] = 0;
+    for (int i = 1; i < size; i++) {
+        send_disp[i] = send_disp[i-1] + send_counts[i-1];
+        recv_disp[i] = recv_disp[i-1] + recv_counts[i-1];
+    }
+    int total_send = send_disp[size-1] + send_counts[size-1];
+    int total_recv = recv_disp[size-1] + recv_counts[size-1];
+
+    // 4) Pack into buffer of structs
+    MinPlaneToSend *send_buf = malloc(total_send * sizeof(MinPlaneToSend));
+    int *temp_idx = calloc(size, sizeof(int));
+    cur = to_send.head;
+    while (cur) {
+        int dest = get_rank_from_indices(cur->x, cur->y, N, M, tile_displacements, size);
+        int pos = send_disp[dest] + temp_idx[dest];
+        send_buf[pos].index_plane = cur->index_plane;
+        send_buf[pos].x           = cur->x;
+        send_buf[pos].y           = cur->y;
+        send_buf[pos].vx          = cur->vx;
+        send_buf[pos].vy          = cur->vy;
+        temp_idx[dest]++;
+        cur = cur->next;
+    }
+    free(temp_idx);
+
+    // 5) Alltoallv with struct datatype
+    MinPlaneToSend *recv_buf = malloc(total_recv * sizeof(MinPlaneToSend));
+    MPI_Alltoallv(send_buf, send_counts, send_disp, MPI_MinPlaneType,
+                  recv_buf, recv_counts, recv_disp, MPI_MinPlaneType,
+                  MPI_COMM_WORLD);
+
+    // 6) Unpack received planes into main list
+    for (int i = 0; i < total_recv; i++) {
+        MinPlaneToSend *mp = &recv_buf[i];
+        int    idx   = mp->index_plane;
+        double x_val = mp->x;
+        double y_val = mp->y;
+        double vx_val= mp->vx;
+        double vy_val= mp->vy;
+        int ii = get_index_i(x_val, x_max, N);
+        int jj = get_index_j(y_val, y_max, M);
+        int idx_map = get_index(ii, jj, N, M);
+        insert_plane(list, idx, idx_map, rank,
+                     x_val, y_val, vx_val, vy_val);
+    }
+
+    // 7) Cleanup
+    free(send_counts);
+    free(recv_counts);
+    free(send_disp);
+    free(recv_disp);
+    free(send_buf);
+    free(recv_buf);
+    MPI_Type_free(&MPI_MinPlaneType);
     // lo mismo q alltoall pero cambiando una cosa, tenemos q crear propio datatype (lo puedes crear) i configurarlo (tutorial) web: https://rookiehpc.org/mpi/docs/mpi_type_create_struct/index.html
 }
 
