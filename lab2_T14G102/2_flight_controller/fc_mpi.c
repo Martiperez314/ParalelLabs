@@ -219,10 +219,10 @@ void communicate_planes_alltoall(PlaneList* list, int N, int M, double x_max, do
     // 6) Unpack received planes into main list
     for (int i = 0; i < total_recv / 5; i++) {
         int    idx   = (int)recv_buf[5*i + 0];
-        double x_val =        recv_buf[5*i + 1];
-        double y_val =        recv_buf[5*i + 2];
-        double vx_val=        recv_buf[5*i + 3];
-        double vy_val=        recv_buf[5*i + 4];
+        double x_val = recv_buf[5*i + 1];
+        double y_val =recv_buf[5*i + 2];
+        double vx_val=recv_buf[5*i + 3];
+        double vy_val =recv_buf[5*i + 4];
         // recompute map index
         int ii = get_index_i(x_val, x_max, N);
         int jj = get_index_j(y_val, y_max, M);
