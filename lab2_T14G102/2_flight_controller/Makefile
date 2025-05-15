@@ -1,10 +1,14 @@
-CC=mpicc
-CFLAGS=-O2 -fopenmp -march=native -lm -std=c99
-OBJ=fc_mpi
+CC = mpicc
+CFLAGS = -O3 -march=native -std=c99 -Wall
+LIBS = -lm
 
-all:
-	$(CC) $(OBJ).c -o $(OBJ) $(CFLAGS)
+all: fc_seq fc_mpi
+
+fc_seq: fc_seq.c auxiliar.c
+	$(CC) $(CFLAGS) -o fc_seq fc_seq.c auxiliar.c $(LIBS)
+
+fc_mpi: fc_mpi.c auxiliar.c
+	$(CC) $(CFLAGS) -o fc_mpi fc_mpi.c auxiliar.c $(LIBS)
 
 clean:
-	rm $(OBJ)
-
+	rm -f fc_seq fc_mpi
