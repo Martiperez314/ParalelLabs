@@ -29,7 +29,7 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
     
     //Flight Controller: Domain decomposition (MIP)
     for(int i = 0; i < size + 1; i++){
-        tile_displacements[i] = i *(N*M)/size  
+        tile_displacements[i] = i * (N * M) / size;
     }
 
     // Reading plane data
@@ -37,20 +37,15 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
     while (fgets(line, sizeof(line), file)) {
         int idx;
         double x, y, vx, vy;
-        if (sscanf(line, "%d %lf %lf %lf %lf",
-                   &idx, &x, &y, &vx, &vy) == 5) {
+        if (sscanf(line, "%d %lf %lf %lf %lf", &idx, &x, &y, &vx, &vy) == 5) {
             int index_i = get_index_i(x, *x_max, *N);
             int index_j = get_index_j(y, *y_max, *M);
             int index_map = get_index(index_i, index_j, *N, *M);
-            int rank = 0;
-            if(tile_displacements[rank] <= index_map < tile_displacements[rank + 1] ){
+            if (index_map >= tile_displacements[rank] && index_map < tile_displacements[rank + 1]) {
                 insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
                 index++;
             }
-            
         }
-
-
     }
     fclose(file);
 
@@ -131,26 +126,6 @@ void communicate_planes_send(PlaneList* list, int N, int M, double x_max, double
     }
     free(req);
 }
-
-
-
-    /*
-    Sirve para enviar los aviones de unos procesos a otrs. Buscar si hay algun avion hay enviar a otro sitio
-    Iteras y cuentas cuantos has de enviar. i los guardas en una lista (creas una lista de tamaño size) tienes q guardar cuantos aviones tienes q guardar en cada proceso get_rank_from_indices
-    Enviar esta inf al rango q toca (cuantos les vas a pasar). Buscar q aviones hay q enviar i enviarlos i luego recibirlos i tambien cuantos hay q pasarlos(antes esta informacion)
-    (usar el isend i el recv)
-    
-    5 parametros a enviar
-        int index_plane;
-        double x;
-        double y;
-        double vx;
-        double vy;
-
-        ponerlos en una array de doubles i enviar esa array i cuando lo recives. Transformar el index_plane double en int 
-        MPI_RECV(lista, 5 , datatype, source, tag, comm, status)
-    */
-
 /// TODO
 /// Communicate planes using all to all calls with default data types
 void communicate_planes_alltoall(PlaneList* list, int N, int M, double x_max, double y_max, int rank, int size, int* tile_displacements)
@@ -218,7 +193,7 @@ void communicate_planes_alltoall(PlaneList* list, int N, int M, double x_max, do
 
     // 6) Unpack received planes into main list
     for (int i = 0; i < total_recv / 5; i++) {
-        int    idx   = (int)recv_buf[5*i + 0];
+        int idx = (int)recv_buf[5*i + 0];
         double x_val = recv_buf[5*i + 1];
         double y_val =recv_buf[5*i + 2];
         double vx_val=recv_buf[5*i + 3];
