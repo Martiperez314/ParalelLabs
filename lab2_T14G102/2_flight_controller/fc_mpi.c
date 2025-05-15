@@ -62,6 +62,69 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
 /// Communicate planes using mainly Send/Recv calls with default data types
 void communicate_planes_send(PlaneList* list, int N, int M, double x_max, double y_max, int rank, int size, int* tile_displacements)
 {
+    int* n_planes_to_send = (int*)calloc(size, sizeof(int));
+    int total_planes_to_send = 0;
+    PlaneList* planes_to_send = (NULL, NULL);
+
+    PlaneNode* current = list->head;
+    while (current != NULL) {
+        int new_rank = get_rank_from_indices(current->x, current->y, N, M, tile_displacements, size);
+        if (new_rank != rank) {
+            n_planes_to_send[new_rank]++;
+            insert_plane(planes_to_send, current->index_plane, current->index_map, rank, current->x, current->y, current->vx, current->vy);
+            remove_plane(list, current);
+            total_planes_to_send++;
+        }
+        current = current->next;
+    }
+
+    MPI_Request* req = (MPI_Request*)malloc(sizeof(MPI_Request) * size);
+    for (int i = 0; i < size; i++) {
+        MPI_Isend(&n_planes_to_send[i], 1, MPI_INT, i, MPI_PLANE, MPI_COMM_WORLD, &req[i]);
+    }
+
+    int planes_to_receive = 0;
+    int aux;
+    MPI_Status status;
+
+    for (int i = 0; i < size; i++) {
+        MPI_Recv(&aux, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        planes_to_receive += aux;
+    }
+
+    free(n_planes_to_send);
+    free(req);
+
+    MPI_Request* req = (MPI_Request*)malloc(sizeof(MPI_Request) * total_planes_to_send);
+
+    PlaneNode* current = planes_to_send->head;
+    int aux2 = 0;
+    double* planes = (double*)malloc(sizeof(double) * total_planes_to_send * 5);
+
+    while (current != NULL) {
+        double* plane = (double*)malloc(sizeof(double) * 5);
+        plane[0] = (double)(current->index_plane);
+        plane[1] = current->x;
+        plane[2] = current->y;
+        plane[3] = current->vx;
+        plane[4] = current->vy;
+
+        int new_rank = get_rank_from_indices(current->x, current->y, N, M, tile_displacements, size);
+        MPI_Isend(plane, 5, MPI_DOUBLE, new_rank, MPI_PLANE, MPI_COMM_WORLD, &req[aux2]);
+        aux2++;
+        current = current->next;
+    }
+
+    double plane[5];
+    for (int i = 0; i < planes_to_receive; i++) {
+        MPI_Recv(&plane[0], 5, MPI_DOUBLE, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        insert_plane(list, (int)plane[0], rank, plane[1], plane[2], plane[3], plane[4]);
+    }
+
+    free(req);
+}
+
+
     /*
     Sirve para enviar los aviones de unos procesos a otrs. Buscar si hay algun avion hay enviar a otro sitio
     Iteras y cuentas cuantos has de enviar. i los guardas en una lista (creas una lista de tamaño size) tienes q guardar cuantos aviones tienes q guardar en cada proceso get_rank_from_indices
@@ -78,7 +141,6 @@ void communicate_planes_send(PlaneList* list, int N, int M, double x_max, double
         ponerlos en una array de doubles i enviar esa array i cuando lo recives. Transformar el index_plane double en int 
         MPI_RECV(lista, 5 , datatype, source, tag, comm, status)
     */
-}
 
 /// TODO
 /// Communicate planes using all to all calls with default data types
