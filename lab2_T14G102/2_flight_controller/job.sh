@@ -9,4 +9,8 @@
 module load gcc/13.3.0
 module load openmpi/4.1.1
 
-mpirun -n 4 ./fc_mpi input_planes_test.txt 25 0 1
+mpirun -np 4 ./fc_mpi input_planes_test.txt 25 0 1
+
+mpirun -np 4 ./fc_mpi input_planes_test.txt 25 1 1
+
+mpirun -np 4 ./fc_mpi input_planes_test.txt 25 2 1
