@@ -44,16 +44,17 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
             int index_i = get_index_i(x, *x_max, *N);
             int index_j = get_index_j(y, *y_max, *M);
             int index_map = get_index(index_i, index_j, *N, *M);
-            int rank = 0;
+            //int rank = 0;
             if (index_map >= tile_displacements[rank] && index_map < tile_displacements[rank + 1]) {
                 insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
+                printf("Rank %d: Inserted plane %d at (%.2f, %.2f) with velocity (%.2f, %.2f)\n",
+                rank, idx, x, y, vx, vy);
                 index++;
             }
         }
     }
     fclose(file);
-
-    printf("Total planes read: %d\n", index);
+    printf("Rank %d: Total planes read and owned = %d\n", rank, list_size(planes));
     assert(num_planes == index);
 }
 
@@ -240,7 +241,6 @@ int main(int argc, char **argv) {
     int max_steps;                      // Total simulation steps
     char* input_file;                   // Input file name
     int check;                          // 0: no check, 1: check the simulation is correct
-
     int rank, size;
 
     /// TODO
