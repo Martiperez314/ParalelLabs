@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <time.h>
 #include <assert.h>
-
 #include "auxiliar.h"
 
 /// Function to reads the planes from a file

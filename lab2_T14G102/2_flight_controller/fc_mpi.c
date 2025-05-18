@@ -11,7 +11,7 @@
 /// Reading the planes from a file for MPI
 void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, double* x_max, double* y_max, int rank, int size, int* tile_displacements)
 {
-    FILE *file = fopen(filename, "r");
+FILE *file = fopen(filename, "r");
     if (!file) {
         perror("Error opening file");
         return;
@@ -27,11 +27,11 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
     fgets(line, sizeof(line), file);
     sscanf(line, "# Number of Planes: %d", &num_planes);
     fgets(line, sizeof(line), file);
-    
-    // Compute tile displacements
-    int total_tiles = (*N) * (*M);
+
+    // Compute the tile displacement
+    int total_cells = (*N) * (*M);
     for (int i = 0; i <= size; i++) {
-        tile_displacements[i] = (i * total_tiles) / size;
+        tile_displacements[i] = i * (total_cells / size);
     }
 
     // Reading plane data
@@ -39,22 +39,25 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
     while (fgets(line, sizeof(line), file)) {
         int idx;
         double x, y, vx, vy;
-        if (sscanf(line, "%d %lf %lf %lf %lf",
-            &idx, &x, &y, &vx, &vy) == 5) {
+        if (sscanf(line, "%d %lf %lf %lf %lf", &idx, &x, &y, &vx, &vy) == 5) {
+            index++;
             int index_i = get_index_i(x, *x_max, *N);
             int index_j = get_index_j(y, *y_max, *M);
             int index_map = get_index(index_i, index_j, *N, *M);
-            //int rank = 0;
-            if (index_map >= tile_displacements[rank] && index_map < tile_displacements[rank + 1]) {
-                insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
-                printf("Rank %d: Inserted plane %d at (%.2f, %.2f) with velocity (%.2f, %.2f)\n",
-                rank, idx, x, y, vx, vy);
-                index++;
+
+            for (int r = 0; r < size; r++) {
+                if (index_map >= tile_displacements[r] && index_map < tile_displacements[r + 1]) {
+                    if (r == rank) {
+                        insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
+                    }
+                    break;
+                }
             }
         }
     }
     fclose(file);
-    printf("Rank %d: Total planes read and owned = %d\n", rank, list_size(planes));
+
+    printf("Total planes read: %d\n", index);
     assert(num_planes == index);
 }
 

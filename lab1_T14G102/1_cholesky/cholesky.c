@@ -5,8 +5,6 @@
 #include <time.h>
 #include "cholesky.h"
 
-
-
 void cholesky_openmp(int n) {
     int i, j, k;
     double** A;
