@@ -1,4 +1,0 @@
-# Plane Data
-# Map: 0.00, 0.00 : 0 0
-# Number of Planes: X
-# idx x y vx vy

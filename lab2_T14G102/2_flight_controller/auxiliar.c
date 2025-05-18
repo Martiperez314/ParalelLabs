@@ -341,5 +341,3 @@ void print_planes_par_debug(PlaneList* list)
     }
 
 }
-
-

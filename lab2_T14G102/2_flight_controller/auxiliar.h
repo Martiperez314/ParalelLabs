@@ -108,3 +108,4 @@ void output_planes_seq(const char* filename, PlaneList* list, int N, int M, doub
 /// Function to outputs the planes to a file (not optimized, recommended only for checking with small number of planes)
 void output_planes_par_debug(const char* filename, PlaneList* list, int N, int M, double x_max, double y_max);
 
+

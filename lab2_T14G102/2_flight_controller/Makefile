@@ -1,24 +1,10 @@
-CC      = mpicc
-CFLAGS  = -O3 -lm -std=c99
-LIBS    =
+CC=mpicc
+CFLAGS=-O3 -march=native -lm -std=c99
+OBJ = fc_mpi
 
-.PHONY: all seq mpi clean
-
-all: seq mpi
-
-# alias so "make mpi" actually builds fc_mpi
-mpi: fc_mpi
-
-# build sequential (if you ever need it)
-seq: fc_seq
-
-fc_seq: fc_seq.c auxiliar.c
-        $(CC) $(CFLAGS) -o $@ fc_seq.c auxiliar.c $(LIBS)
-
-# build the MPI executable
-fc_mpi: fc_mpi.c auxiliar.c
-        $(CC) $(CFLAGS) -o $@ fc_mpi.c auxiliar.c $(LIBS)
+all:
+	$(CC) fc_seq.c auxiliar.c -o fc_seq $(CFLAGS)
+	$(CC) fc_mpi.c auxiliar.c -o fc_mpi $(CFLAGS)
 
 clean:
-        rm -f fc_seq fc_mpi
-
+	rm $(OBJ)

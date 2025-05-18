@@ -11,100 +11,124 @@
 /// Reading the planes from a file for MPI
 void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, double* x_max, double* y_max, int rank, int size, int* tile_displacements)
 {
-    PlaneList all_planes = {NULL, NULL};
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Error opening file");
+        return;
+    }
 
-    if (rank == 0) {
-        read_planes_seq_full(filename, &all_planes, N, M, x_max, y_max);
+    char line[MAX_LINE_LENGTH];
+    int num_planes = 0;
 
-        PlaneNode* current = all_planes.head;
-        while (current != NULL) {
-            int owner_rank = get_rank_from_index(current->index_map, tile_displacements, size);
+    // Reading header
+    fgets(line, sizeof(line), file);
+    fgets(line, sizeof(line), file);
+    sscanf(line, "# Map: %lf, %lf : %d %d", x_max, y_max, N, M);
+    fgets(line, sizeof(line), file);
+    sscanf(line, "# Number of Planes: %d", &num_planes);
+    fgets(line, sizeof(line), file);
+    
+    // Compute tile displacements
+    int total_tiles = (*N) * (*M);
+    for (int i = 0; i <= size; i++) {
+        tile_displacements[i] = (i * total_tiles) / size;
+    }
 
-            if (owner_rank == 0) {
-                insert_plane(planes, current->index_plane, current->index_map, current->rank, current->x, current->y, current->vx, current->vy);
-            } else {
-                double data[6] = {
-                    (double)current->index_plane,
-                    current->x, current->y,
-                    current->vx, current->vy,
-                    (double)current->index_map
-                };
-                MPI_Send(data, 6, MPI_DOUBLE, owner_rank, 0, MPI_COMM_WORLD);
+    // Reading plane data
+    int index = 0;
+    while (fgets(line, sizeof(line), file)) {
+        int idx;
+        double x, y, vx, vy;
+        if (sscanf(line, "%d %lf %lf %lf %lf",
+            &idx, &x, &y, &vx, &vy) == 5) {
+            int index_i = get_index_i(x, *x_max, *N);
+            int index_j = get_index_j(y, *y_max, *M);
+            int index_map = get_index(index_i, index_j, *N, *M);
+            int rank = 0;
+            if (index_map >= tile_displacements[rank] && index_map < tile_displacements[rank + 1]) {
+                insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
+                index++;
             }
-
-            current = current->next;
-        }
-
-        // Send termination signal to other ranks
-        double end_signal[1] = {-1};
-        for (int r = 1; r < size; ++r) {
-            MPI_Send(end_signal, 1, MPI_DOUBLE, r, 0, MPI_COMM_WORLD);
-        }
-    } else {
-        while (1) {
-            double data[6];
-            MPI_Recv(data, 6, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            if (data[0] == -1.0) break;
-
-            int idx = (int)data[0];
-            double x = data[1], y = data[2];
-            double vx = data[3], vy = data[4];
-            int index_map = (int)data[5];
-
-            insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
         }
     }
+    fclose(file);
+
+    printf("Total planes read: %d\n", index);
+    assert(num_planes == index);
 }
 
 /// TODO
 /// Communicate planes using mainly Send/Recv calls with default data types
 void communicate_planes_send(PlaneList* list, int N, int M, double x_max, double y_max, int rank, int size, int* tile_displacements)
 {
-    PlaneNode* current = list->head;
+    int* n_planes_to_send = (int*)calloc(size, sizeof(int));// Allocate an array to count how many planes each process will receive
+    int total_planes_to_send = 0;
+    PlaneList* planes_to_send = (NULL, NULL);// Create a new list to hold planes that need to be sent to other processes
+    PlaneNode* current = list->head;// Pointer to the start of the local plane list
+
     while (current != NULL) {
-        PlaneNode* next = current->next;
-        current->x += current->vx;
-        current->y += current->vy;
+        // Determine which process (rank) should now handle this plane based on its position
+        int new_rank = get_rank_from_indices(current->x, current->y, N, M, tile_displacements, size);
+        if (new_rank != rank) { // If the plane does not belong to the current process anymore then increment the count of planes to be sent to this new_rank
+            n_planes_to_send[new_rank]++;
 
-        if (current->x <= 1e-3 || current->x >= (x_max - 1e-3) ||
-            current->y <= 1e-3 || current->y >= (y_max - 1e-3)) {
+            // Then you add this plane and remove it from local list 
+            insert_plane(planes_to_send, current->index_plane, current->index_map, rank, current->x, current->y, current->vx, current->vy);
             remove_plane(list, current);
-        } else {
-            int new_i = get_index_i(current->x, x_max, N);
-            int new_j = get_index_j(current->y, y_max, M);
-            int new_index_map = get_index(new_i, new_j, N, M);
-            int new_rank = get_rank_from_index(new_index_map, tile_displacements, size);
-
-            if (new_rank == rank) {
-                current->index_map = new_index_map;
-            } else {
-                double data[6] = {
-                    (double)current->index_plane,
-                    current->x, current->y,
-                    current->vx, current->vy,
-                    (double)new_index_map
-                };
-                MPI_Send(data, 6, MPI_DOUBLE, new_rank, 0, MPI_COMM_WORLD);
-                remove_plane(list, current);
-            }
+            total_planes_to_send++;// Keep track of how many total planes need to be sent
         }
-
-        current = next;
+        current = current->next;// Move to the next plane in the list
     }
 
-    // Receive incoming planes
+    // We prepare non-blocking send requests for sending plane counts and send the number of planes that will be sent to each process
+    MPI_Request* req = (MPI_Request*)malloc(sizeof(MPI_Request) * size);
+    for (int i = 0; i < size; i++) {
+        MPI_Isend(&n_planes_to_send[i], 1, MPI_INT, i, 0, MPI_COMM_WORLD, &req[i]);
+    }
+
+    int planes_to_receive = 0;
+    int aux;
     MPI_Status status;
-    int flag;
-    do {
-        MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, &status);
-        if (flag) {
-            double data[6];
-            MPI_Recv(data, 6, MPI_DOUBLE, status.MPI_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            int idx = (int)data[0];
-            insert_plane(list, idx, (int)data[5], rank, data[1], data[2], data[3], data[4]);
-        }
-    } while (flag);
+
+    // Receive how many planes this process will receive from any source
+    for (int i = 0; i < size; i++) {
+        MPI_Recv(&aux, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        planes_to_receive += aux;  // Accumulate the total number of planes to expect
+    }
+    free(n_planes_to_send);
+    free(req);
+
+    // Allocate new requests for sending actual plane data
+    req = (MPI_Request*)malloc(sizeof(MPI_Request) * total_planes_to_send);
+    current = planes_to_send->head; // Reset pointer to start of planes_to_send list
+    int aux2 = 0;
+
+    // Allocate memory to store all planes being sent (5 values per plane)
+    double* planes = (double*)malloc(sizeof(double) * total_planes_to_send * 5);
+
+    // For each plane in the send list, prepare and send its data
+    while (current != NULL) {
+        // Create an array to hold this plane's data
+        double* plane = (double*)malloc(sizeof(double) * 5); 
+        plane[0] = (double)(current->index_plane);  // Transform int to double (later it will be treansform it back)
+        plane[1] = current->x;                      
+        plane[2] = current->y;                     
+        plane[3] = current->vx;                     
+        plane[4] = current->vy;                     
+
+        // Get the process rank and send it to the actual plane data to the correct destination
+        int new_rank = get_rank_from_indices(current->x, current->y, N, M, tile_displacements, size);
+        MPI_Isend(plane, 5, MPI_DOUBLE, new_rank, 0, MPI_COMM_WORLD, &req[aux2]);
+        aux2++;
+        current = current->next;
+    }
+
+    double plane[5];  // Then we recive actual planes
+    for (int i = 0; i < planes_to_receive; i++) {
+        MPI_Recv(&plane[0], 5, MPI_DOUBLE, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        insert_plane(list, (int)plane[0], rank, plane[1], plane[2], plane[3], plane[4]);// Insert the received plane into the local list
+    }
+    free(req);
 }
 
 /// TODO
@@ -204,17 +228,13 @@ typedef struct {
 
 /// TODO
 /// Communicate planes using all to all calls with custom data types
-void communicate_planes_struct_mpi(PlaneList* list,
-                               int N, int M,
-                               double x_max, double y_max,
-                               int rank, int size,
-                               int* tile_displacements)
+void communicate_planes_struct_mpi(PlaneList* list,int N, int M,double x_max, double y_max,int rank, int size,int* tile_displacements)
 {
-    communicate_planes_alltoall(list, N, M, x_max, y_max, rank, size, tile_displacements);
+    //to do
 }
 
 int main(int argc, char **argv) {
-    int debug = 0;                      // 0: no debug, 1: shows all planes information during checking
+    int debug = 1;                      // 0: no debug, 1: shows all planes information during checking
     int N = 0, M = 0;                   // Grid dimensions
     double x_max = 0.0, y_max = 0.0;    // Total grid size
     int max_steps;                      // Total simulation steps
@@ -285,8 +305,7 @@ int main(int argc, char **argv) {
     }
     time_total = MPI_Wtime() - start_time;
 
-    /// TODO Check computational times
-
+    // TODO Check computational times
 
     if (rank == 0) {
         printf("Flight controller simulation: #input %s mode: %d size: %d\n", input_file, mode, size);
@@ -295,7 +314,7 @@ int main(int argc, char **argv) {
         printf("Time total:          %.2fs\n", time_total);
     }
 
-    if (check ==1)
+    if (check == 1)
         check_planes_mpi(&owning_planes_t0, &owning_planes, N, M, x_max, y_max, max_steps, tile_displacements, size, debug);
 
     MPI_Finalize();
