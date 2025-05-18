@@ -44,7 +44,6 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
             int index_i = get_index_i(x, *x_max, *N);
             int index_j = get_index_j(y, *y_max, *M);
             int index_map = get_index(index_i, index_j, *N, *M);
-            int rank = 0;
             if (index_map >= tile_displacements[rank] && index_map < tile_displacements[rank + 1]) {
                 insert_plane(planes, idx, index_map, rank, x, y, vx, vy);
                 index++;
