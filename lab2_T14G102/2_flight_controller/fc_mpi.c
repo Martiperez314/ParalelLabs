@@ -11,7 +11,7 @@
 /// Reading the planes from a file for MPI
 void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, double* x_max, double* y_max, int rank, int size, int* tile_displacements)
 {
-FILE *file = fopen(filename, "r");
+    FILE *file = fopen(filename, "r");
     if (!file) {
         perror("Error opening file");
         return;
@@ -29,9 +29,9 @@ FILE *file = fopen(filename, "r");
     fgets(line, sizeof(line), file);
 
     // Compute the tile displacement
-    int total_cells = (*N) * (*M);
+    int grid_cells = (*N) * (*M);
     for (int i = 0; i <= size; i++) {
-        tile_displacements[i] = i * (total_cells / size);
+        tile_displacements[i] = i * (grid_cells / size);
     }
 
     // Reading plane data
@@ -244,6 +244,7 @@ int main(int argc, char **argv) {
     int max_steps;                      // Total simulation steps
     char* input_file;                   // Input file name
     int check;                          // 0: no check, 1: check the simulation is correct
+
     int rank, size;
 
     /// TODO
