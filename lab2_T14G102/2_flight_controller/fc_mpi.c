@@ -60,297 +60,344 @@ void read_planes_mpi(const char* filename, PlaneList* planes, int* N, int* M, do
     assert(num_planes == index);
 }
 
-void communicate_planes_send(PlaneList* list, int N, int M, double x_max, double y_max, int rank, int size, int* tile_displacements) {
-    // STEP 1: Count how many planes must be sent to each process
-    // For each plane, compute its new destination rank based on its coordinates.
-    // This allows us to prepare communication buffers sized correctly.
-    int *send_counts = calloc(size, sizeof(int));
-    for (PlaneNode *node = list->head; node; node = node->next) {
-        int i = get_index_i(node->x, x_max, N);
-        int j = get_index_j(node->y, y_max, M);
-        int dest_rank = get_rank_from_indices(i, j, N, M, tile_displacements, size);
-        if (dest_rank != rank) send_counts[dest_rank]++;
-    }
-
-    // STEP 2: Allocate one buffer per destination to pack outgoing plane data
-    // Each buffer will store all planes we need to send to that particular rank
-    double **send_buffers = malloc(size * sizeof(double*));
-    int *buffer_offsets = calloc(size, sizeof(int));
-    for (int r = 0; r < size; r++) {
-        send_buffers[r] = malloc(send_counts[r] * 6 * sizeof(double));  // each plane has 6 doubles
-    }
-
-    // STEP 3: Pack planes into buffers and remove them from the local list
-    // We prepare each plane for sending by writing it to its corresponding buffer
-    PlaneNode *node = list->head;
-    while (node) {
-        PlaneNode *next_node = node->next;
-        int i = get_index_i(node->x, x_max, N);
-        int j = get_index_j(node->y, y_max, M);
-        int dest_rank = get_rank_from_indices(i, j, N, M, tile_displacements, size);
+void communicate_planes_send(PlaneList* list,
+                             int N, int M,
+                             double x_max, double y_max,
+                             int rank, int size,
+                             int* tile_displacements)
+{
+    // STEP 1: Compute how many planes to send to each rank
+    int* send_counts_per_rank = calloc(size, sizeof(int));
+    for (PlaneNode* node = list->head; node; node = node->next) {
+        int idx_i = get_index_i(node->x, x_max, N);
+        int idx_j = get_index_j(node->y, y_max, M);
+        int dest_rank = get_rank_from_indices(idx_i, idx_j, N, M, tile_displacements, size);
         if (dest_rank != rank) {
-            int offset = buffer_offsets[dest_rank]++;
-            double *buf = send_buffers[dest_rank] + 6 * offset;
+            send_counts_per_rank[dest_rank]++;
+        }
+    }
+
+    // STEP 2: Allocate per-rank send buffers and track offsets
+    double** plane_send_buffers = malloc(size * sizeof(double*));
+    int* send_buffer_offsets = calloc(size, sizeof(int));
+    for (int r = 0; r < size; ++r) {
+        plane_send_buffers[r] = malloc(send_counts_per_rank[r] * 6 * sizeof(double));
+    }
+
+    // STEP 3: Pack local planes into send buffers and remove them from list
+    for (PlaneNode* node = list->head, *next_node; node; node = next_node) {
+        next_node = node->next;
+        int idx_i = get_index_i(node->x, x_max, N);
+        int idx_j = get_index_j(node->y, y_max, M);
+        int dest_rank = get_rank_from_indices(idx_i, idx_j, N, M, tile_displacements, size);
+        if (dest_rank != rank) {
+            int offset = send_buffer_offsets[dest_rank]++;
+            double* buf = plane_send_buffers[dest_rank] + offset * 6;
             buf[0] = (double)node->index_plane;
             buf[1] = node->x;
             buf[2] = node->y;
             buf[3] = node->vx;
             buf[4] = node->vy;
-            buf[5] = (double)node->index_map;
+            buf[5] = (double)get_index(idx_i, idx_j, N, M);
             remove_plane(list, node);
         }
-        node = next_node;
     }
 
-    // STEP 4: Exchange send/receive counts to coordinate message sizes
-    // Avoid deadlocks by respecting rank ordering: lower ranks receive first
-    int *recv_counts = calloc(size, sizeof(int));
-    MPI_Request reqs[2];
-    for (int r = 0; r < size; r++) {
+    // STEP 4: Non-blocking exchange of send counts
+    int* recv_counts_per_rank = calloc(size, sizeof(int));
+    MPI_Request* count_requests = malloc(2 * size * sizeof(MPI_Request));
+    int req_idx = 0;
+    for (int r = 0; r < size; ++r) {
         if (r == rank) continue;
-        if (r < rank) {
-            MPI_Recv(&recv_counts[r], 1, MPI_INT, r, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Isend(&send_counts[r], 1, MPI_INT, r, 10, MPI_COMM_WORLD, &reqs[0]);
-        } else {
-            MPI_Isend(&send_counts[r], 1, MPI_INT, r, 10, MPI_COMM_WORLD, &reqs[0]);
-            MPI_Recv(&recv_counts[r], 1, MPI_INT, r, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        }
-        if (r < rank)
-            MPI_Wait(&reqs[0], MPI_STATUS_IGNORE);
+        MPI_Irecv(&recv_counts_per_rank[r], 1, MPI_INT, r, 0, MPI_COMM_WORLD, &count_requests[req_idx++]);
+        MPI_Isend(&send_counts_per_rank[r], 1, MPI_INT, r, 0, MPI_COMM_WORLD, &count_requests[req_idx++]);
+    }
+    MPI_Waitall(req_idx, count_requests, MPI_STATUSES_IGNORE);
+
+    // STEP 5: Allocate per-rank receive buffers
+    double** plane_recv_buffers = malloc(size * sizeof(double*));
+    for (int r = 0; r < size; ++r) {
+        if (r == rank) plane_recv_buffers[r] = NULL;
+        else plane_recv_buffers[r] = malloc(recv_counts_per_rank[r] * 6 * sizeof(double));
     }
 
-    // STEP 5: Allocate memory to receive incoming planes
-    double **recv_buffers = malloc(size * sizeof(double*));
-    for (int r = 0; r < size; r++) {
-        recv_buffers[r] = (r == rank ? NULL : malloc(recv_counts[r] * 6 * sizeof(double)));
-    }
-
-    // STEP 6: Perform actual exchange of plane data
-    // Use same rank-ordering strategy as above to avoid deadlocks
-    for (int r = 0; r < size; r++) {
+    // STEP 6: Non-blocking exchange of plane data
+    MPI_Request* data_requests = malloc(2 * size * sizeof(MPI_Request));
+    req_idx = 0;
+    for (int r = 0; r < size; ++r) {
         if (r == rank) continue;
-        if (r < rank) {
-            MPI_Recv(recv_buffers[r], recv_counts[r] * 6, MPI_DOUBLE, r, 20, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Isend(send_buffers[r], send_counts[r] * 6, MPI_DOUBLE, r, 20, MPI_COMM_WORLD, &reqs[1]);
-        } else {
-            MPI_Isend(send_buffers[r], send_counts[r] * 6, MPI_DOUBLE, r, 20, MPI_COMM_WORLD, &reqs[1]);
-            MPI_Recv(recv_buffers[r], recv_counts[r] * 6, MPI_DOUBLE, r, 20, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        }
-        if (r < rank)
-            MPI_Wait(&reqs[1], MPI_STATUS_IGNORE);
+        MPI_Irecv(plane_recv_buffers[r], recv_counts_per_rank[r] * 6, MPI_DOUBLE,
+                  r, 1, MPI_COMM_WORLD, &data_requests[req_idx++]);
+        MPI_Isend(plane_send_buffers[r], send_counts_per_rank[r] * 6, MPI_DOUBLE,
+                  r, 1, MPI_COMM_WORLD, &data_requests[req_idx++]);
     }
+    MPI_Waitall(req_idx, data_requests, MPI_STATUSES_IGNORE);
 
-    // STEP 7: Unpack received planes and insert them into local list
-    for (int r = 0; r < size; r++) {
+    // STEP 7: Unpack received planes into the local list
+    for (int r = 0; r < size; ++r) {
         if (r == rank) continue;
-        for (int i = 0; i < recv_counts[r]; i++) {
-            double *buf = recv_buffers[r] + 6 * i;
-            int plane_id = (int) buf[0];
-            double x = buf[1];
-            double y = buf[2];
-            double vx = buf[3];
-            double vy = buf[4];
-            int grid_index = (int) buf[5];
-            insert_plane(list, plane_id, grid_index, rank, x, y, vx, vy);
+        for (int i = 0; i < recv_counts_per_rank[r]; ++i) {
+            double* buf = plane_recv_buffers[r] + i * 6;
+            int  plane_id   = (int)buf[0];
+            double x        = buf[1];
+            double y        = buf[2];
+            double vx       = buf[3];
+            double vy       = buf[4];
+            int    grid_idx = (int)buf[5];
+            insert_plane(list, plane_id, grid_idx, rank, x, y, vx, vy);
         }
     }
 
-    // STEP 8: Free all dynamically allocated memory
-    for (int r = 0; r < size; r++) {
-        free(send_buffers[r]);
-        if (r != rank) free(recv_buffers[r]);
+    // STEP 8: Clean up all allocated memory and requests
+    for (int r = 0; r < size; ++r) {
+        free(plane_send_buffers[r]);
+        if (plane_recv_buffers[r]) free(plane_recv_buffers[r]);
     }
-    free(send_buffers);
-    free(recv_buffers);
-    free(send_counts);
-    free(recv_counts);
-    free(buffer_offsets);
+    free(plane_send_buffers);
+    free(plane_recv_buffers);
+    free(send_buffer_offsets);
+    free(send_counts_per_rank);
+    free(recv_counts_per_rank);
+    free(count_requests);
+    free(data_requests);
 }
 
 void communicate_planes_alltoall(PlaneList* list, int N, int M, double x_max, double y_max, int rank, int size, int* tile_displacements) {
-    // Step 1: Count how many planes to send to each rank
-    int* send_counts = calloc(size, sizeof(int));
-    MinPlaneToSend** plane_buckets = calloc(size, sizeof(MinPlaneToSend*));
-    int* plane_bucket_sizes = calloc(size, sizeof(int));
+    // STEP 1: Initialize send buckets and counts per rank
+    int* send_counts_per_rank = calloc(size, sizeof(int));
+    MinPlaneToSend** plane_send_buckets = calloc(size, sizeof(MinPlaneToSend*));
+    int* bucket_sizes_per_rank = calloc(size, sizeof(int));
 
+    // STEP 2: Traverse the plane list and bucket planes for sending
     PlaneNode* current = list->head;
     while (current != NULL) {
-        PlaneNode* next = current->next;
-        int i = get_index_i(current->x, x_max, N);
-        int j = get_index_j(current->y, y_max, M);
-        int index_map = get_index(i, j, N, M);
-        int new_rank = get_rank_from_index(index_map, tile_displacements, size);
+        PlaneNode* next_node = current->next;
+        int idx_i = get_index_i(current->x, x_max, N);
+        int idx_j = get_index_j(current->y, y_max, M);
+        int map_index = get_index(idx_i, idx_j, N, M);
+        int dest_rank = get_rank_from_index(map_index, tile_displacements, size);
 
-        if (new_rank != rank) {
-            MinPlaneToSend mp = {
+        if (dest_rank != rank) {
+            // Pack plane data to send bucket
+            MinPlaneToSend plane_info = {
                 .index_plane = current->index_plane,
                 .x = current->x,
                 .y = current->y,
                 .vx = current->vx,
                 .vy = current->vy
             };
-            plane_bucket_sizes[new_rank]++;
-            plane_buckets[new_rank] = realloc(plane_buckets[new_rank], plane_bucket_sizes[new_rank] * sizeof(MinPlaneToSend));
-            plane_buckets[new_rank][plane_bucket_sizes[new_rank] - 1] = mp;
+            bucket_sizes_per_rank[dest_rank]++;
+            plane_send_buckets[dest_rank] = realloc(
+                plane_send_buckets[dest_rank],
+                bucket_sizes_per_rank[dest_rank] * sizeof(MinPlaneToSend)
+            );
+            plane_send_buckets[dest_rank][bucket_sizes_per_rank[dest_rank] - 1] = plane_info;
             remove_plane(list, current);
         }
-
-        current = next;
+        current = next_node;
     }
 
-    for (int i = 0; i < size; i++) {
-        send_counts[i] = plane_bucket_sizes[i];
+    // STEP 3:Prepare send counts array for MPI_Alltoall
+    for (int r = 0; r < size; r++) {
+        send_counts_per_rank[r] = bucket_sizes_per_rank[r];
     }
 
-    // Step 2: Exchange counts
-    int* recv_counts = calloc(size, sizeof(int));
-    MPI_Alltoall(send_counts, 1, MPI_INT, recv_counts, 1, MPI_INT, MPI_COMM_WORLD);
+    // STEP 4: Exchange send/receive counts
+    int* recv_counts_per_rank = calloc(size, sizeof(int));
+    MPI_Alltoall(
+        send_counts_per_rank, 1, MPI_INT,
+        recv_counts_per_rank, 1, MPI_INT,
+        MPI_COMM_WORLD
+    );
 
-    // Step 3: Prepare send/recv buffers and displacements
+    // STEP 5: Compute displacements and total counts
     int total_send = 0, total_recv = 0;
-    int* sdispls = calloc(size, sizeof(int));
-    int* rdispls = calloc(size, sizeof(int));
-    for (int i = 0; i < size; i++) {
-        sdispls[i] = total_send;
-        total_send += send_counts[i];
-        rdispls[i] = total_recv;
-        total_recv += recv_counts[i];
+    int* send_displs = calloc(size, sizeof(int));
+    int* recv_displs = calloc(size, sizeof(int));
+    for (int r = 0; r < size; r++) {
+        send_displs[r] = total_send;
+        total_send += send_counts_per_rank[r];
+        recv_displs[r] = total_recv;
+        total_recv += recv_counts_per_rank[r];
     }
 
-    MinPlaneToSend* sendbuf = malloc(total_send * sizeof(MinPlaneToSend));
-    MinPlaneToSend* recvbuf = malloc(total_recv * sizeof(MinPlaneToSend));
+    // STEP 6: Allocate buffers for all-to-all data exchange
+    MinPlaneToSend* send_buffer = malloc(total_send * sizeof(MinPlaneToSend));
+    MinPlaneToSend* recv_buffer = malloc(total_recv * sizeof(MinPlaneToSend));
 
-    for (int i = 0, offset = 0; i < size; i++) {
-        if (send_counts[i] > 0) {
-            memcpy(&sendbuf[offset], plane_buckets[i], send_counts[i] * sizeof(MinPlaneToSend));
-            offset += send_counts[i];
+    // STEP 7: Flatten buckets into contiguous send buffer
+    for (int r = 0, offset = 0; r < size; r++) {
+        if (send_counts_per_rank[r] > 0) {
+            memcpy(
+                &send_buffer[offset],
+                plane_send_buckets[r],
+                send_counts_per_rank[r] * sizeof(MinPlaneToSend)
+            );
+            offset += send_counts_per_rank[r];
         }
-        free(plane_buckets[i]);
+        free(plane_send_buckets[r]);  // free each bucket
     }
 
-    // Step 4: All-to-all data exchange
+    // STEP 8: Define MPI datatype for MinPlaneToSend
     MPI_Datatype MPI_MinPlane;
-    MPI_Type_contiguous(5, MPI_DOUBLE, &MPI_MinPlane);  // Incorrect. Must define with offsets.
+    MPI_Type_contiguous(sizeof(MinPlaneToSend) / sizeof(double),MPI_DOUBLE,&MPI_MinPlane);
     MPI_Type_commit(&MPI_MinPlane);
 
-    MPI_Alltoallv(sendbuf, send_counts, sdispls, MPI_MinPlane,
-                  recvbuf, recv_counts, rdispls, MPI_MinPlane, MPI_COMM_WORLD);
+    // STEP 9: Perform all-to-all variable-length exchange
+    MPI_Alltoallv(send_buffer, send_counts_per_rank, send_displs, MPI_MinPlane, recv_buffer, recv_counts_per_rank, recv_displs, MPI_MinPlane, MPI_COMM_WORLD);
 
-    // Step 5: Reinsert received planes
+    // STEP 10: Reinsert received planes into local list
     for (int i = 0; i < total_recv; i++) {
-        MinPlaneToSend* p = &recvbuf[i];
-        int index_i = get_index_i(p->x, x_max, N);
-        int index_j = get_index_j(p->y, y_max, M);
-        int index_map = get_index(index_i, index_j, N, M);
-        insert_plane(list, p->index_plane, index_map, rank, p->x, p->y, p->vx, p->vy);
+        MinPlaneToSend* p = &recv_buffer[i];
+        int ii = get_index_i(p->x, x_max, N);
+        int jj = get_index_j(p->y, y_max, M);
+        int idx = get_index(ii, jj, N, M);
+        insert_plane(
+            list,
+            p->index_plane,
+            idx,
+            rank,
+            p->x,
+            p->y,
+            p->vx,
+            p->vy
+        );
     }
 
-    free(send_counts);
-    free(recv_counts);
-    free(sdispls);
-    free(rdispls);
-    free(plane_buckets);
-    free(plane_bucket_sizes);
-    free(sendbuf);
-    free(recvbuf);
+    // STEP 11: Cleanup allocations and MPI datatype
+    free(send_counts_per_rank);
+    free(bucket_sizes_per_rank);
+    free(recv_counts_per_rank);
+    free(send_displs);
+    free(recv_displs);
+    free(plane_send_buckets);
+    free(send_buffer);
+    free(recv_buffer);
     MPI_Type_free(&MPI_MinPlane);
 }
 
-void communicate_planes_struct_mpi(PlaneList* list,int N, int M,double x_max, double y_max,int rank, int size,int* tile_displacements) {
-    // Step 1: Create custom MPI datatype
+void communicate_planes_struct_mpi(PlaneList* list,
+                                   int N, int M,
+                                   double x_max, double y_max,
+                                   int rank, int size,
+                                   int* tile_displacements)
+{
+    // STEP 1: Create and commit MPI datatype for MinPlaneToSend struct
     MPI_Datatype MPI_MinPlane;
-    int lengths[5] = {1, 1, 1, 1, 1};
-    MPI_Aint displs[5];
-    MPI_Aint base;
-    MinPlaneToSend dummy;
-    MPI_Get_address(&dummy, &base);
-    MPI_Get_address(&dummy.index_plane, &displs[0]);
-    MPI_Get_address(&dummy.x, &displs[1]);
-    MPI_Get_address(&dummy.y, &displs[2]);
-    MPI_Get_address(&dummy.vx, &displs[3]);
-    MPI_Get_address(&dummy.vy, &displs[4]);
-    for (int i = 0; i < 5; i++) displs[i] -= base;
+    int blocklengths[5] = {1, 1, 1, 1, 1};
+    MPI_Aint base_address;
+    MPI_Aint displacements[5];
+    
+    MinPlaneToSend dummy_plane;
+
+    MPI_Get_address(&dummy_plane, &base_address);
+    MPI_Get_address(&dummy_plane.index_plane, &displacements[0]);
+    MPI_Get_address(&dummy_plane.x,&displacements[1]);
+    MPI_Get_address(&dummy_plane.y,&displacements[2]);
+    MPI_Get_address(&dummy_plane.vx, &displacements[3]);
+    MPI_Get_address(&dummy_plane.vy, &displacements[4]);
+
+    for (int idx = 0; idx < 5; idx++) {
+        displacements[idx] -= base_address;
+    }
 
     MPI_Datatype types[5] = {MPI_INT, MPI_DOUBLE, MPI_DOUBLE, MPI_DOUBLE, MPI_DOUBLE};
-    MPI_Type_create_struct(5, lengths, displs, types, &MPI_MinPlane);
+    MPI_Type_create_struct(5, blocklengths, displacements, types, &MPI_MinPlane);
     MPI_Type_commit(&MPI_MinPlane);
 
-    // Step 2: Classify planes to send
-    int* send_counts = calloc(size, sizeof(int));
-    MinPlaneToSend** send_lists = calloc(size, sizeof(MinPlaneToSend*));
+    // STEP 2: Bucket planes to send per destination rank
+    int* send_counts_per_rank = calloc(size, sizeof(int));
+    MinPlaneToSend** plane_send_buckets = calloc(size, sizeof(MinPlaneToSend*));
+    int* bucket_sizes_per_rank = calloc(size, sizeof(int));
+    PlaneNode* current_node = list->head;
 
-    PlaneNode* current = list->head;
-    while (current != NULL) {
-        PlaneNode* next = current->next;
-        int i = get_index_i(current->x, x_max, N);
-        int j = get_index_j(current->y, y_max, M);
-        int index_map = get_index(i, j, N, M);
-        int target = get_rank_from_index(index_map, tile_displacements, size);
+    while (current_node != NULL) {
+        PlaneNode* next_node = current_node->next;
+        int ii = get_index_i(current_node->x, x_max, N);
+        int jj = get_index_j(current_node->y, y_max, M);
+        int map_index = get_index(ii, jj, N, M);
+        int dest_rank = get_rank_from_index(map_index, tile_displacements, size);
 
-        if (target != rank) {
-            send_lists[target] = realloc(send_lists[target], (send_counts[target] + 1) * sizeof(MinPlaneToSend));
-            send_lists[target][send_counts[target]] = (MinPlaneToSend){
-                .index_plane = current->index_plane,
-                .x = current->x,
-                .y = current->y,
-                .vx = current->vx,
-                .vy = current->vy
-            };
-            send_counts[target]++;
-            remove_plane(list, current);
+        if (dest_rank != rank) {
+            //appending plane data to corresponding bucket
+            bucket_sizes_per_rank[dest_rank]++;
+            plane_send_buckets[dest_rank] = realloc(plane_send_buckets[dest_rank],bucket_sizes_per_rank[dest_rank] * sizeof(MinPlaneToSend));
+            plane_send_buckets[dest_rank][bucket_sizes_per_rank[dest_rank] - 1] = (MinPlaneToSend){
+                    .x = current_node->x,
+                    .y = current_node->y,
+                    .vx = current_node->vx,
+                    .vy = current_node->vy
+                    .index_plane = current_node->index_plane,
+                };
+            send_counts_per_rank[dest_rank]++;
+            remove_plane(list, current_node);
         }
-        current = next;
+        current_node = next_node;
     }
 
-    // Step 3: Alltoall exchange of counts
-    int* recv_counts = calloc(size, sizeof(int));
-    MPI_Alltoall(send_counts, 1, MPI_INT, recv_counts, 1, MPI_INT, MPI_COMM_WORLD);
+    // STEP 3: Prepare send_counts_per_rank array for MPI_Alltoall
+    for (int r = 0; r < size; r++) {
+        send_counts_per_rank[r] = bucket_sizes_per_rank[r];
+    }
 
-    // Step 4: Build buffers and displacements
-    int* sdispls = calloc(size, sizeof(int));
-    int* rdispls = calloc(size, sizeof(int));
+    // STEP 4: Exchange number of planes to send/receive with all ranks
+    int* recv_counts_per_rank = calloc(size, sizeof(int));
+    MPI_Alltoall(
+        send_counts_per_rank, 1, MPI_INT,
+        recv_counts_per_rank, 1, MPI_INT,
+        MPI_COMM_WORLD
+    );
+
+    // STEP 5: Compute displacements and total counts, allocate flat buffers
+    int* send_displs = calloc(size, sizeof(int));
+    int* recv_displs = calloc(size, sizeof(int));
     int total_send = 0, total_recv = 0;
-    for (int i = 0; i < size; i++) {
-        sdispls[i] = total_send;
-        rdispls[i] = total_recv;
-        total_send += send_counts[i];
-        total_recv += recv_counts[i];
+    for (int r = 0; r < size; r++) {
+        send_displs[r] = total_send;
+        total_send += send_counts_per_rank[r];
+        recv_displs[r] = total_recv;
+        total_recv += recv_counts_per_rank[r];
     }
+    MinPlaneToSend* recv_buffer = malloc(total_recv * sizeof(MinPlaneToSend));
+    MinPlaneToSend* send_buffer = malloc(total_send * sizeof(MinPlaneToSend));
+    
 
-    MinPlaneToSend* sendbuf = malloc(total_send * sizeof(MinPlaneToSend));
-    MinPlaneToSend* recvbuf = malloc(total_recv * sizeof(MinPlaneToSend));
-
-    for (int i = 0, offset = 0; i < size; i++) {
-        if (send_counts[i] > 0) {
-            memcpy(&sendbuf[offset], send_lists[i], send_counts[i] * sizeof(MinPlaneToSend));
-            offset += send_counts[i];
+    for (int r = 0, offset = 0; r < size; r++) {
+        if (send_counts_per_rank[r] > 0) {
+            memcpy(
+                &send_buffer[offset],
+                plane_send_buckets[r],
+                send_counts_per_rank[r] * sizeof(MinPlaneToSend)
+            );
+            offset += send_counts_per_rank[r];
         }
-        free(send_lists[i]);
+        free(plane_send_buckets[r]);
     }
 
-    // Step 5: Alltoallv communication
-    MPI_Alltoallv(sendbuf, send_counts, sdispls, MPI_MinPlane,
-                  recvbuf, recv_counts, rdispls, MPI_MinPlane, MPI_COMM_WORLD);
+    // STEP 6: Perform all-to-all variable-length communication
+    MPI_Alltoallv(send_buffer, send_counts_per_rank, send_displs, MPI_MinPlane,recv_buffer, recv_counts_per_rank, recv_displs, MPI_MinPlane,MPI_COMM_WORLD);
 
-    // Step 6: Reinsert received planes
+    // STEP 7: Insert all received planes back into the local list
     for (int i = 0; i < total_recv; i++) {
-        MinPlaneToSend* p = &recvbuf[i];
-        int index_i = get_index_i(p->x, x_max, N);
-        int index_j = get_index_j(p->y, y_max, M);
-        int index_map = get_index(index_i, index_j, N, M);
-        insert_plane(list, p->index_plane, index_map, rank, p->x, p->y, p->vx, p->vy);
+        MinPlaneToSend* p = &recv_buffer[i];
+        int xi = get_index_i(p->x, x_max, N);
+        int yi = get_index_j(p->y, y_max, M);
+        int idx = get_index(xi, yi, N, M);
+        insert_plane(list,p->index_plane,idx,rank,p->x, p->y, p->vx, p->vy);
     }
 
-    // Cleanup
-    free(send_counts);
-    free(recv_counts);
-    free(sdispls);
-    free(rdispls);
-    free(send_lists);
-    free(sendbuf);
-    free(recvbuf);
+    // STEP 8: Cleanup all allocated buffers and free MPI type
+    free(send_counts_per_rank);
+    free(bucket_sizes_per_rank);
+    free(recv_counts_per_rank);
+    free(send_displs);
+    free(recv_displs);
+    free(plane_send_buckets);
+    free(send_buffer);
+    free(recv_buffer);
     MPI_Type_free(&MPI_MinPlane);
 }
+
 
 int main(int argc, char **argv) {
     int debug = 1;
@@ -432,3 +479,5 @@ int main(int argc, char **argv) {
     MPI_Finalize();
     return 0;
 }
+
+
