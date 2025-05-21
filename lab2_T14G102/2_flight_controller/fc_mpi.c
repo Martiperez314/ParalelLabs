@@ -92,13 +92,13 @@ void communicate_planes_send(PlaneList* list,
         int dest_rank = get_rank_from_indices(idx_i, idx_j, N, M, tile_displacements, size);
         if (dest_rank != rank) {
             int offset = send_buffer_offsets[dest_rank]++;
-            double* buf = plane_send_buffers[dest_rank] + offset * 6;
-            buf[0] = (double)node->index_plane;
-            buf[1] = node->x;
-            buf[2] = node->y;
-            buf[3] = node->vx;
-            buf[4] = node->vy;
-            buf[5] = (double)get_index(idx_i, idx_j, N, M);
+            double* buffer = plane_send_buffers[dest_rank] + offset * 6;
+            buffer[0] = (double)node->index_plane;
+            buffer[1] = node->x;
+            buffer[2] = node->y;
+            buffer[3] = node->vx;
+            buffer[4] = node->vy;
+            buffer[5] = (double)get_index(idx_i, idx_j, N, M);
             remove_plane(list, node);
         }
     }
