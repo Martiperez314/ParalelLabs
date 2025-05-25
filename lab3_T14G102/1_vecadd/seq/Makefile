@@ -1,6 +1,6 @@
-CC=
+CC=gcc
 CFLAGS=-O2 -Wall
-OBJ=
+OBJ=vecadd_seq
 
 all:
 	$(CC) $(OBJ).c -o $(OBJ) $(CFLAGS)
