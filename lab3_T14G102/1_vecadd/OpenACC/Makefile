@@ -1,9 +1,9 @@
-CC=nvc
-CFLAGS=-O2 -Wall
-OBJ=
+CC=nvcc
+CFLAGS=-O2 -lm 
+OBJ= vecadd_oacc
 
 all:
-	$(CC) $(OBJ).c -o $(OBJ) $(CFLAGS)
+	$(CC) $(CFLAGS) $(OBJ).c -o $(OBJ)
 
 clean:
 	rm $(OBJ)

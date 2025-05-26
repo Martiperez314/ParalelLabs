@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <math.h>
 #include <cuda.h>
-
 #define BLOCKSIZE 128
 
 #define CUDA_CHECK(call) \
@@ -37,7 +36,6 @@ int main(int argc, char *argv[]) {
     double *A = (double *)malloc(size);
     double *B = (double *)malloc(size);
     double *C = (double *)malloc(size);
-
     for (int i = 0; i < N; i++) {
         A[i] = (double)i;
         B[i] = 2.0 * (N - i);
@@ -59,16 +57,14 @@ int main(int argc, char *argv[]) {
     cudaEventRecord(start);
     CUDA_CHECK(cudaMemcpy(d_A, A, size, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_B, B, size, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_C, 0, size));  // initialize result on device
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time_h2d, start, stop);
 
     // Kernel Timing
-    int threadsPerBlock = BLOCKSIZE;
-    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksPerGrid = (N + BLOCKSIZE - 1) / BLOCKSIZE;
     cudaEventRecord(start);
-    vecadd_cuda<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
+    vecadd_cuda<<<blocksPerGrid, BLOCKSIZE>>>(d_A, d_B, d_C, N);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time_kernel, start, stop);
@@ -81,12 +77,16 @@ int main(int argc, char *argv[]) {
     cudaEventElapsedTime(&time_d2h, start, stop);
 
     // Validation
-    int valid = 1;
-    for (int i = 0; i < N; i++) {
+    const double tol = 1e-6;
+    for (int i = 0; i < N; ++i) {
         double expected = 2.0 * N - i;
-        if (fabs(C[i] - expected) > 1e-6) {
-            valid = 0;
-            break;
+        if (fabs(C[i] - expected) > tol) {
+            fprintf(stderr, "Validation failed at index %d: C[%d] = %f, expected %f\n",
+                    i, i, C[i], expected);
+            free(A);
+            free(B);
+            free(C);
+            return EXIT_FAILURE;
         }
     }
 
