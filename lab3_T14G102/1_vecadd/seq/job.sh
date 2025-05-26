@@ -9,4 +9,4 @@
 
 make >> make.out || exit 1 
 
-./vecadd_seq 500000000s
+./vecadd_seq 5000000
