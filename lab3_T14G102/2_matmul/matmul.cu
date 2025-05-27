@@ -23,12 +23,33 @@
 // Sequential Matrix Multiplication
 void matmul_seq(double *A, double *B, double *C, const int N)
 {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            double sum = 0.0;
+            // dot‐product of row i of A with column j of B
+            for (int k = 0; k < N; ++k) {
+                sum += A[i * N + k] * B[k * N + j];
+            }
+            C[i * N + j] = sum;
+        }
+    }
 }
 
 // TODO
 // Simple CUDA Matrix Multiplication Kernel
 __global__ void matmul_naive_kernel(double *A, double *B, double *C, const int N)
 {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < N && col < N) {
+        double sum = 0.0;
+        // Compute dot-product of row of A with column of B
+        for (int k = 0; k < N; ++k) {
+            sum += A[row * N + k] * B[k * N + col];
+        }
+        C[row * N + col] = sum;
+    }
 }
 
 // TODO
