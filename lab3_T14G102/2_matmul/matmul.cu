@@ -227,11 +227,14 @@ int main(int argc, char *argv[])
 
     // TODO
     // Define threads per block and blocks in the grid
+    dim3 block(BLOCKSIZE, BLOCKSIZE);
+    dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (N + BLOCKSIZE - 1) / BLOCKSIZE);
 
     CUDA_CHECK(cudaEventRecord(event_start));
 
     // TODO
     // Launch matmul_naive_kernel
+    matmul_naive_kernel<<<grid, block>>>(d_A, d_B, d_C, N);
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -264,6 +267,7 @@ int main(int argc, char *argv[])
     CUDA_CHECK(cudaEventRecord(event_start));
     // TODO
     // Launch matmul_shared_kernel
+    matmul_shared_kernel<<<grid, block>>>(d_A, d_B, d_C, N);
 
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
