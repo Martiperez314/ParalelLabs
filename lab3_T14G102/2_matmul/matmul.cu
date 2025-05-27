@@ -54,10 +54,37 @@ __global__ void matmul_naive_kernel(double *A, double *B, double *C, const int N
 
 // TODO
 // Matrix Multiplication Kernel exploiting shared memory
-__global__ void matmul_shared_kernel(double *A, double *B, double *C, const int N)
-{
-}
+__global__ void matmul_shared_kernel(double *A, double *B, double *C, const int N) {
+    // Shared memory tiles for A and B
+    __shared__ double A_tile[BLOCKSIZE][BLOCKSIZE];
+    __shared__ double B_tile[BLOCKSIZE][BLOCKSIZE];
 
+    int row = blockIdx.y * BLOCKSIZE + threadIdx.y;// We compute row and column index of the element in C this thread will compute
+    int col = blockIdx.x * BLOCKSIZE + threadIdx.x;
+    double sum = 0.0;
+
+    for (int tile = 0; tile < (N + BLOCKSIZE - 1) / BLOCKSIZE; ++tile) {
+        // Load A and B tiles into shared memory if within bounds
+        if (row < N && tile * BLOCKSIZE + threadIdx.x < N)
+            A_tile[threadIdx.y][threadIdx.x] = A[row * N + tile * BLOCKSIZE + threadIdx.x];
+        else
+            A_tile[threadIdx.y][threadIdx.x] = 0.0;
+        if (tile * BLOCKSIZE + threadIdx.y < N && col < N)
+            B_tile[threadIdx.y][threadIdx.x] = B[(tile * BLOCKSIZE + threadIdx.y) * N + col];
+        else
+            B_tile[threadIdx.y][threadIdx.x] = 0.0;
+
+        __syncthreads();// Wait for all threads to finish loading
+
+        for (int k = 0; k < BLOCKSIZE; ++k) {// Multiply the tiles together
+            sum += A_tile[threadIdx.y][k] * B_tile[k][threadIdx.x];
+        }
+        __syncthreads();// Wait for all threads before loading new tiles
+    }
+    if (row < N && col < N) {// Store the result in C if within bounds
+        C[row * N + col] = sum;
+    }
+}
 void validation(double *h_C, double *C, const int N)
 {
     for (int i = 0; i < N; i++)
