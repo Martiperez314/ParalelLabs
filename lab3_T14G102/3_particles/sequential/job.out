@@ -1,0 +1,15 @@
+make: Nothing to be done for 'all'.
+Particles: 1000
+Iter: 100. Saving snapshot t = 1.000000e-04 in pFrame
+Iter: 200. Saving snapshot t = 2.000000e-04 in pFrame
+Iter: 300. Saving snapshot t = 3.000000e-04 in pFrame
+Iter: 400. Saving snapshot t = 4.000000e-04 in pFrame
+Iter: 500. Saving snapshot t = 5.000000e-04 in pFrame
+Iter: 600. Saving snapshot t = 6.000000e-04 in pFrame
+Iter: 700. Saving snapshot t = 7.000000e-04 in pFrame
+Iter: 800. Saving snapshot t = 8.000000e-04 in pFrame
+Iter: 900. Saving snapshot t = 9.000000e-04 in pFrame
+Iter: 1000. Saving snapshot t = 1.000000e-03 in pFrame
+Position of particle 0 is wrong: Expected: (2.800044e-03,5.528277e-02,-2.202323e-01)	Actual: (2.799984e-03,5.528158e-02,-2.202275e-01)
+Position of particle (N - 1) is wrong: Expected: (1.189548e-02,1.947447e-02,-2.069657e-01)	Actual: (1.189525e-02,1.947409e-02,-2.069616e-01)
+Elapsed time: 0.052177 seconds
