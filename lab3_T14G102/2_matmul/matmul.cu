@@ -304,6 +304,19 @@ int main(int argc, char *argv[])
     // TODO
     // Call cuBLAS Matrix Multiplication kernel
 
+    const double alpha = 1.0; // Alpha = 1.0 means “take the product A × B as is,”
+    const double beta = 0.0; // and Beta = 0.0 means “don’t add anything to C afterward.”
+    // cuBLAS expects column-major storage, but our arrays are row-major.
+    // By swapping A and B in the call, cuBLAS effectively computes A × B correctly.
+
+    cublasDgemm(cublas_handle,
+            CUBLAS_OP_N, CUBLAS_OP_N,
+            N, N, N,
+            &alpha,
+            d_B, N,
+            d_A, N,
+            &beta,
+            d_C, N);
 
     CUDA_CHECK(cudaDeviceSynchronize());
 
