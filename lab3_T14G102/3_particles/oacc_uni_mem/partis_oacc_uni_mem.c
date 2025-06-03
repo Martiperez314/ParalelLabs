@@ -95,7 +95,7 @@ void setInitialConditions(Particle *particles, const int N)
 // Calculate new position and velocity
 void integrateEuler(Particle *particles, const int N)
 {
-    #pragma acc parallel loop present(particles[0:N]) async(1)
+    #pragma acc parallel loop
     for (int i = 0; i < N; ++i)
     {
         //current speed
@@ -105,15 +105,15 @@ void integrateEuler(Particle *particles, const int N)
 
         double vmag = sqrt(vx * vx + vy * vy + vz * vz);
 
-        //new speed  (Newton 2. law)
-        particles[i].vel.x -= (K / M) * vmag * vx * DT;
-        particles[i].vel.y -= (K / M) * vmag * vy * DT;
-        particles[i].vel.z -= (K / M) * vmag * vz * DT;
-
         //new pos (Newton 2. law)
         particles[i].pos.x += particles[i].vel.x * DT;
         particles[i].pos.y += particles[i].vel.y * DT;
         particles[i].pos.z += particles[i].vel.z * DT;
+
+        //new speed  (Newton 2. law)
+        particles[i].vel.x -= (K / M) * vmag * vx * DT;
+        particles[i].vel.y -= (K / M) * vmag * vy * DT;
+        particles[i].vel.z -= (K / M) * vmag * vz * DT;
     }
 }
 
@@ -121,7 +121,7 @@ void integrateEuler(Particle *particles, const int N)
 // Copy the state of the particles to a backup buffer.
 void copyFrame(Particle *p_dst, Particle *p_src, const int N)
 {
-    #pragma acc parallel loop present(p_dst[0:N], p_src[0:N]) async(2)
+    #pragma acc parallel loop
     for (int i = 0; i < N; ++i)
     {
         p_dst[i].pos = p_src[i].pos;
@@ -251,7 +251,6 @@ int main(int argc, char *argv[])
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    #pragma acc data copy(particles[0:N], pFrame[0:N])
     while (t <= TOTAL_TIME)
     {
         // Time integration
@@ -265,14 +264,13 @@ int main(int argc, char *argv[])
             printf("Iter: %d. Saving snapshot t = %e in pFrame\n", iter, curr_frame_time);
             copyFrame(pFrame, particles, N);
 
-            #pragma acc wait(2)
             if (write_flag)
                 write_solution(pFrame, N, curr_frame_time, filename);
         }
 
         ++iter;
     }
-    #pragma acc wait(1)
+
 
     clock_gettime(CLOCK_MONOTONIC, &end);
 

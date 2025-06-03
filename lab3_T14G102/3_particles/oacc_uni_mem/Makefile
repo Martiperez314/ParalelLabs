@@ -1,13 +1,11 @@
-CC = gcc
-CFLAGS = -O2 -fopenacc -lm
+CC = nvc
+CFLAGS = -O3 -Wall -acc -gpu=managed
 TARGET = partis_oacc_uni_mem
 SRC = partis_oacc_uni_mem.c
 
-
-all: $(TARGET)
-
-$(TARGET): $(SRC)
-	$(CC) $(SRC) -o $(TARGET) $(CFLAGS)
+all:
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -lm
 
 clean:
-	rm -f $(TARGET) *.o out/* *.nsys-rep
+	-rm -f $(TARGET) *.nsys-rep partis_uni_mem.out partis_uni_mem.err
+	-rm -rf out

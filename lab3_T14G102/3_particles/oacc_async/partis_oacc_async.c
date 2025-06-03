@@ -1,3 +1,4 @@
+////prog kopiert aus oacc_uni_mem
 #define _POSIX_C_SOURCE 199309L
 #include <math.h>
 #include <stdio.h>
@@ -95,26 +96,25 @@ void setInitialConditions(Particle *particles, const int N)
 // Calculate new position and velocity
 void integrateEuler(Particle *particles, const int N)
 {
-    #pragma acc parallel loop present(particles[0:N]) async
-    double vx, vy, vz, vmag;
+    #pragma acc parallel loop present(particles[0:N]) async(1)
     for (int i = 0; i < N; ++i)
     {
         //current speed
-        vx = particles[i].vel.x;
-        vy = particles[i].vel.y;
-        vz = particles[i].vel.z;
+        double vx = particles[i].vel.x;
+        double vy = particles[i].vel.y;
+        double vz = particles[i].vel.z;
 
-        vmag = sqrt(vx * vx + vy * vy + vz * vz);
-
-        //new speed  (Newton 2. law)
-        particles[i].vel.x -= (K / M) * vmag * vx * DT;
-        particles[i].vel.y -= (K / M) * vmag * vy * DT;
-        particles[i].vel.z -= (K / M) * vmag * vz * DT;
+        double vmag = sqrt(vx * vx + vy * vy + vz * vz);
 
         //new pos (Newton 2. law)
         particles[i].pos.x += particles[i].vel.x * DT;
         particles[i].pos.y += particles[i].vel.y * DT;
         particles[i].pos.z += particles[i].vel.z * DT;
+
+        //new speed  (Newton 2. law)
+        particles[i].vel.x -= (K / M) * vmag * vx * DT;
+        particles[i].vel.y -= (K / M) * vmag * vy * DT;
+        particles[i].vel.z -= (K / M) * vmag * vz * DT;
     }
 }
 
@@ -122,7 +122,7 @@ void integrateEuler(Particle *particles, const int N)
 // Copy the state of the particles to a backup buffer.
 void copyFrame(Particle *p_dst, Particle *p_src, const int N)
 {
-    #pragma acc parallel loop present(p_dst[0:N], p_src[0:N]) async
+    #pragma acc parallel loop present(p_dst[0:N], p_src[0:N]) async(2)
     for (int i = 0; i < N; ++i)
     {
         p_dst[i].pos = p_src[i].pos;
@@ -253,6 +253,7 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     #pragma acc data copy(particles[0:N], pFrame[0:N])
+    //oder #pragma acc data copyin(particles[0:N]) copyout(pFrame[0:N]), wie in managed variante??
     while (t <= TOTAL_TIME)
     {
         // Time integration
@@ -263,10 +264,14 @@ int main(int argc, char *argv[])
         if (iter % FREQ == 0)
         {
             curr_frame_time = t;
+
+            //waiting for async(1) integrateEuler
+            #pragma acc wait(1)
             printf("Iter: %d. Saving snapshot t = %e in pFrame\n", iter, curr_frame_time);
             copyFrame(pFrame, particles, N);
-
-            #pragma acc wait
+            
+            //waiting for async(2) copyFrame
+            #pragma acc wait(2)
             if (write_flag)
                 write_solution(pFrame, N, curr_frame_time, filename);
         }

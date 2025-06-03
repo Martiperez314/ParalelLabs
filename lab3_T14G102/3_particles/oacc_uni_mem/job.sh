@@ -1,16 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=partikel_sim
-#SBATCH --output=job_output.txt
-#SBATCH --error=job_error.txt
+#SBATCH --job-name=partis_uni_mem
+#SBATCH --output=partis_uni_mem.out
+#SBATCH --error=partis_uni_mem.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:05:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
+#SBATCH --time=00:01:00
 
-# Modul für GPU-Compiler laden (anpassen je nach Cluster)
-module load gcc
-module load nvidia/acc
+export NVHPC_HOME=$HOME/nvhpc/Linux_x86_64/25.5
+export PATH=$NVHPC_HOME/compilers/bin:$PATH
+export LD_LIBRARY_PATH=$NVHPC_HOME/compilers/lib:$LD_LIBRARY_PATH
 
-# Profiling mit Nsight Systems
-nsys profile -o particle_profile_report ./partis_seq 1000 0
+make
+./partis_oacc_uni_mem 1000 0

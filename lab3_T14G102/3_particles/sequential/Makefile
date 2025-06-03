@@ -1,12 +1,11 @@
 CC = gcc
 CFLAGS = -O3 -Wall
 TARGET = partis_seq
+SRC = partis_seq.c
 
-all: $(TARGET)
-
-$(TARGET): partis_seq.c
-	$(CC) $(CFLAGS) partis_seq.c -o $(TARGET) -lm
+all:
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -lm
 
 clean:
-	rm -f $(TARGET) *.o
-	rm -rf out video
+	rm -f $(TARGET) *.o partis_seq.out partis_seq.err
+	rm -rf out

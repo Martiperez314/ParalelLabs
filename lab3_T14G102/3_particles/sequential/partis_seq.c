@@ -104,15 +104,15 @@ void integrateEuler(Particle *particles, const int N)
 
         vmag = sqrt(vx * vx + vy * vy + vz * vz);
 
-        //new speed  (Newton 2. law)
-        particles[i].vel.x -= (K / M) * vmag * vx * DT;
-        particles[i].vel.y -= (K / M) * vmag * vy * DT;
-        particles[i].vel.z -= (K / M) * vmag * vz * DT;
-
         //new pos (Newton 2. law)
         particles[i].pos.x += particles[i].vel.x * DT;
         particles[i].pos.y += particles[i].vel.y * DT;
         particles[i].pos.z += particles[i].vel.z * DT;
+
+        //new speed  (Newton 2. law)
+        particles[i].vel.x -= (K / M) * vmag * vx * DT;
+        particles[i].vel.y -= (K / M) * vmag * vy * DT;
+        particles[i].vel.z -= (K / M) * vmag * vz * DT;
     }
 }
 

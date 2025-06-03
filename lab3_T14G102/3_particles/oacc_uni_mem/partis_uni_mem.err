@@ -1,0 +1,1 @@
+nvc-Warning- The -gpu=[no]managed option is deprecated; please use -gpu=mem:managed or -gpu=mem:separate instead

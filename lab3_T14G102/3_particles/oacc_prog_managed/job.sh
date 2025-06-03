@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=partis_async
-#SBATCH --output=partis_async.out
-#SBATCH --error=partis_async.err
+#SBATCH --job-name=partis_managed
+#SBATCH --output=partis_managed.out
+#SBATCH --error=partis_managed.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=gpu
