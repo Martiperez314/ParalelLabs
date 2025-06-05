@@ -1,11 +1,9 @@
-CC = nvc
-CFLAGS = -O3 -Wall -acc -gpu=managed
-TARGET = partis_oacc_uni_mem
-SRC = partis_oacc_uni_mem.c
+CC=nvc
+CFLAGS=-acc=gpu -gpu=managed -Minfo=all -fast 
+OBJ=partis_oacc_uni_mem
 
 all:
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -lm
+	$(CC) $(OBJ).c -o $(OBJ) $(CFLAGS)
 
 clean:
-	-rm -f $(TARGET) *.nsys-rep partis_uni_mem.out partis_uni_mem.err
-	-rm -rf out
+	rm $(OBJ)
