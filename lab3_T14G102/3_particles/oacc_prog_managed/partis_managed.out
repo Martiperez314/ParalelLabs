@@ -1,3 +1,0 @@
-nvc -O3 -Wall -acc -gpu=cc90 -o partis_oacc_managed partis_oacc_managed.c -lm
-Particles: 1000
-Elapsed time: 0.298929 seconds

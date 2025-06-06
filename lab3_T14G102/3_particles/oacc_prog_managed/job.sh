@@ -1,16 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=partis_managed
-#SBATCH --output=partis_managed.out
-#SBATCH --error=partis_managed.err
+#SBATCH --job-name=partikel_sim
+#SBATCH --output=job_%j.out
+#SBATCH --error=job_error.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
+#SBATCH --time=00:05:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=00:01:00
 
-export NVHPC_HOME=$HOME/nvhpc/Linux_x86_64/25.5
-export PATH=$NVHPC_HOME/compilers/bin:$PATH
-export LD_LIBRARY_PATH=$NVHPC_HOME/compilers/lib:$LD_LIBRARY_PATH
+module purge
+module load nvhpc/24.9
 
-make
-./partis_oacc_managed 1000 0
+make >> make.out || exit 1
+
+nsys profile -o particle_profile_report ./partis_oacc_uni_mem 1000 0
