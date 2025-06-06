@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=partikel_sim
+#SBATCH --job-name=partis_oacc_managed 
 #SBATCH --output=job_%j.out
 #SBATCH --error=job_error.err
 #SBATCH --ntasks=1
