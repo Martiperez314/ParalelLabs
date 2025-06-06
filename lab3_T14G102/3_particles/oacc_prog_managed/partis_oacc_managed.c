@@ -262,8 +262,7 @@ int main(int argc, char *argv[])
         if (iter % FREQ == 0)
         {
             curr_frame_time = t;
-
-            //printf("Iter: %d. Saving snapshot t = %e in pFrame\n", iter, curr_frame_time);
+            printf("Iter: %d. Saving snapshot t = %e in pFrame\n", iter, curr_frame_time);
             copyFrame(pFrame, particles, N);
 
             if (write_flag)
