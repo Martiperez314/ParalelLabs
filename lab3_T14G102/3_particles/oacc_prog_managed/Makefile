@@ -1,9 +1,10 @@
-CC=nvc
-CFLAGS=-acc=gpu -gpu=cc90 -Minfo=all -fast 
-OBJ=partis_oacc_managed 
+CC = nvc
+CFLAGS = -O3 -Wall -acc -gpu=managed
+SRC= partis_oacc_managed.c
+OUT= partis_sim
 
 all:
-	$(CC) $(OBJ).c -o $(OBJ) $(CFLAGS)
+	$(CC) $(CFLAGS) $(SRC) -o $(OUT)
 
 clean:
-	rm $(OBJ)
+	rm -f $(OUT) *.o *.out *.err *.rep out/*.csv
