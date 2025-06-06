@@ -8,15 +8,9 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 
-module load conda
-conda create -n name_default_conda
-conda activate name_default_conda
-conda install matplotlib opencv
-python plot.py
+module purge
+module load nvhpc/24.9
 
-# Modul für GPU-Compiler laden (anpassen je nach Cluster)
-module load gcc
-module load nvidia/acc
+make >> make.out || exit 1
 
-# Profiling mit Nsight Systems
 nsys profile -o particle_profile_report ./partis_seq 1000 0
