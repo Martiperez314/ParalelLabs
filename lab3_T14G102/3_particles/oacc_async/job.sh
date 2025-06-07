@@ -11,6 +11,6 @@
 
 module load nvhpc/24.9
 
-make >> make.out || exit 1  
+make >> make.out || exit 1      
 
-nsys profile -o nsys_report ./partis_oacc_async 1000 0
+nsys profile -o report1 ./partis_oacc_async 1000 0
