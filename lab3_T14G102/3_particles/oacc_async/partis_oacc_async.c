@@ -122,7 +122,8 @@ void integrateEuler(Particle *particles, const int N)
 // Copy the state of the particles to a backup buffer.
 void copyFrame(Particle *p_dst, Particle *p_src, const int N)
 {
-    #pragma acc parallel loop present(p_dst[0:N], p_src[0:N]) async(2)
+    #pragma acc wait(2) async(1)
+    #pragma acc parallel loop present(p_dst[0:N], p_src[0:N]) async(1)
     for (int i = 0; i < N; ++i)
     {
         p_dst[i].pos = p_src[i].pos;
@@ -253,33 +254,32 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     #pragma acc data copy(particles[0:N], pFrame[0:N])
-    //oder #pragma acc data copyin(particles[0:N]) copyout(pFrame[0:N]), wie in managed variante??
-    while (t <= TOTAL_TIME)
     {
-        // Time integration
-        integrateEuler(particles, N);
-        t += DT;
-
-        // Snapshot of the solution
-        if (iter % FREQ == 0)
+        while (t <= TOTAL_TIME)
         {
-            curr_frame_time = t;
+            // Time integration
+            integrateEuler(particles, N);
+            t += DT;
 
-            //waiting for async(1) integrateEuler
-            #pragma acc wait(1)
-            printf("Iter: %d. Saving snapshot t = %e in pFrame\n", iter, curr_frame_time);
-            copyFrame(pFrame, particles, N);
+            // Snapshot of the solution
+            if (iter % FREQ == 0)
+            {
+                curr_frame_time = t;
+
+                printf("Iter: %d. Saving snapshot t = %e in pFrame\n", iter, curr_frame_time);
+                copyFrame(pFrame, particles, N);
             
-            //waiting for async(2) copyFrame
-            #pragma acc wait(2)
-            if (write_flag)
-                write_solution(pFrame, N, curr_frame_time, filename);
-        }
+                #pragma acc wait(1) async(2)
+                #pragma acc update self(pFrame[0:N]) async(2)
 
+                if (write_flag)
+                    write_solution(pFrame, N, curr_frame_time, filename);
+            }
         ++iter;
+        }
+        #pragma acc wait(2)
     }
-    #pragma acc wait
-
+    
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     double elapsed = end.tv_sec - start.tv_sec + (end.tv_nsec - start.tv_nsec) / 1e9;

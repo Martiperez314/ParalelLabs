@@ -1,11 +1,9 @@
-CC = nvc
-CFLAGS = -O3 -Wall -acc -gpu=cc90
-TARGET = partis_oacc_async
-SRC = partis_oacc_async.c
+CC=nvc
+CFLAGS=-acc=gpu -gpu=cc90 -Minfo=all -lm
+OBJ=partis_oacc_async
 
 all:
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -lm
+	$(CC) $(CFLAGS) $(OBJ).c -mp -o $(OBJ)
 
 clean:
-	-rm -f $(TARGET) *.nsys-rep partis_async.out partis_async.err
-	-rm -rf out
+	rm $(OBJ)
